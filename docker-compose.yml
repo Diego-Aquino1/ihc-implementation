@@ -1,0 +1,13 @@
+services:
+  backend:
+    build: ./backend
+    container_name: ihc-backend
+    ports:
+      - "8005:8000"
+  frontend:
+    build: ./frontend
+    container_name: ihc-frontend
+    ports:
+      - "3005:3005"
+    environment:
+      - VITE_API_BASE=http://localhost:8005
