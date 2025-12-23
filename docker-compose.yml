@@ -10,4 +10,4 @@ services:
     ports:
       - "3005:3005"
     environment:
-      - VITE_API_BASE=http://localhost:8005
+      - VITE_API_BASE=http://134.209.126.22:8005

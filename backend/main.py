@@ -45,12 +45,15 @@ app = FastAPI(title="Mock Interview Trainer - T2.1")
 origins = [
     "http://localhost",
     "http://localhost:3002",
+    "http://localhost:3005",
     "http://localhost:5173",  # Por si acaso alguien usa el puerto por defecto
+    "http://134.209.126.22:3005",  # IP del servidor - frontend
+    "http://134.209.126.22:8005",  # IP del servidor - backend
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=origins,  # En producción, usar lista específica. Para desarrollo más permisivo, usar ["*"]
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

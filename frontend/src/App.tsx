@@ -29,7 +29,20 @@ interface EvaluationResponse {
   suggestions: string[];
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8001";
+// Detectar automáticamente la URL del backend basándose en la URL actual
+const getApiBase = () => {
+  if (import.meta.env.VITE_API_BASE) {
+    return import.meta.env.VITE_API_BASE;
+  }
+  // Si estamos en el servidor (IP), usar la IP del servidor
+  if (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+    return `http://${window.location.hostname}:8005`;
+  }
+  // Si estamos en localhost, usar localhost
+  return "http://localhost:8005";
+};
+
+const API_BASE = getApiBase();
 
 // Ejemplos de proyectos predefinidos para seleccionar
 const PROJECT_EXAMPLES = [
