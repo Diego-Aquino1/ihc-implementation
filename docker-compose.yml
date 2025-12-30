@@ -7,6 +7,7 @@ services:
       - "8005:8000"
     volumes:
       - ./backend:/app
+      - ./backend/database.db:/app/database.db  # ← Agregar esta línea
     environment:
       - PYTHONUNBUFFERED=1
 
@@ -18,6 +19,6 @@ services:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=http://localhost:8005
+      - VITE_API_URL=http://134.209.126.22:8005
     depends_on:
       - backend
