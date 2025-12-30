@@ -1,0 +1,8 @@
+{
+  "name": "InterviewCoach",
+  "description": "AI-powered interview simulator with speech synthesis and analysis.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

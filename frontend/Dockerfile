@@ -2,14 +2,15 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-COPY package.json /app/package.json
+COPY package.json package-lock.json ./
+RUN npm ci
 
-RUN npm install --quiet
+COPY . .
 
-COPY . /app
+# Expose port for Vite dev server
+EXPOSE 3000
 
-EXPOSE 3005
-
-CMD ["npm", "run", "dev"]
-
-
+# Using dev server for 'docker compose up' interactivity as requested by similar context usually, 
+# but user just said 'run it'. 
+# To ensure it binds to valid host in container:
+CMD ["npm", "run", "dev", "--", "--host"]
