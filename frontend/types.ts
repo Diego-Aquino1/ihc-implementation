@@ -36,6 +36,12 @@ export interface PressureBreakdown {
   segments: EmotionalSegment[];
 }
 
+export interface VisualCue {
+  timestamp: string;
+  status: 'atento' | 'nervioso' | 'distraido' | 'confiado';
+  feedback: string;
+}
+
 export interface FeedbackData {
   score: number;
   transcription: string;
@@ -46,7 +52,8 @@ export interface FeedbackData {
   fillerWordCount: number;
   emotionalTone: string;
   starAnalysis?: StarBreakdown;
-  pressureAnalysis?: PressureBreakdown; // New optional field
+  pressureAnalysis?: PressureBreakdown;
+  visualAnalysis?: VisualCue[]; // New field for real-time video understanding
 }
 
 export interface SessionData {
