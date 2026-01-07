@@ -17,7 +17,8 @@ export const blobToBase64 = (blob: Blob): Promise<string> => {
 // --- VEO VIDEO GENERATION ---
 export const generateInterviewerAvatar = async (vibe: string): Promise<string | null> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const apiKey = (process.env as any).GEMINI_API_KEY || (process.env as any).API_KEY;
+    const ai = new GoogleGenAI({ apiKey });
 
     let prompt = "A professional HR interviewer, sitting in a modern office, looking directly at the camera, listening attentively, slight nod, cinema quality, 4k";
     
@@ -78,7 +79,8 @@ export const generateInterviewerAvatar = async (vibe: string): Promise<string | 
 // --- GEMINI 3 FLASH VIDEO UNDERSTANDING (Real-time Snapshot) ---
 export const analyzeVisualCues = async (imageBase64: string): Promise<VisualCue | null> => {
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const apiKey = (process.env as any).GEMINI_API_KEY || (process.env as any).API_KEY;
+    const ai = new GoogleGenAI({ apiKey });
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview', 
             contents: [
@@ -122,7 +124,8 @@ export const analyzeVisualCues = async (imageBase64: string): Promise<VisualCue 
 // 1. Generate Speech (TTS) - Backup for non-Live mode
 export const generateInterviewSpeech = async (text: string): Promise<string | null> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const apiKey = (process.env as any).GEMINI_API_KEY || (process.env as any).API_KEY;
+    const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
       contents: [{ parts: [{ text: text }] }],
@@ -148,7 +151,8 @@ export const generateInterviewSpeech = async (text: string): Promise<string | nu
 // 2. Transcribe Audio
 export const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const apiKey = (process.env as any).GEMINI_API_KEY || (process.env as any).API_KEY;
+    const ai = new GoogleGenAI({ apiKey });
     const base64Data = await blobToBase64(audioBlob);
     
     // Explicitly using audio model capability
@@ -179,7 +183,8 @@ export const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
 // 3. Analyze Interview Answer
 export const analyzeAnswer = async (transcription: string, question: string, stage: string, visualCues: VisualCue[] = []): Promise<FeedbackData> => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const apiKey = (process.env as any).GEMINI_API_KEY || (process.env as any).API_KEY;
+    const ai = new GoogleGenAI({ apiKey });
     // Incorporate visual cues into the analysis context
     const visualSummary = visualCues.length > 0 
         ? `Observaciones visuales durante la respuesta: ${visualCues.map(v => v.status).join(', ')}.` 
@@ -285,7 +290,8 @@ export const analyzeAnswer = async (transcription: string, question: string, sta
 
 export const generateStrategicQuestions = async (jdText: string): Promise<string[]> => {
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const apiKey = (process.env as any).GEMINI_API_KEY || (process.env as any).API_KEY;
+    const ai = new GoogleGenAI({ apiKey });
         const prompt = `
             Basado en la siguiente Descripción del Puesto, sugiere 3 preguntas estratégicas de alto nivel.
             Job Description: ${jdText.substring(0, 1000)}...

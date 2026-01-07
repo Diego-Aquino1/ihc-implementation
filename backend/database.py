@@ -7,6 +7,11 @@ connect_args = {"check_same_thread": False}
 engine = create_engine(sqlite_url, echo=True, connect_args=connect_args)
 
 def create_db_and_tables():
+    # Importar todos los modelos antes de crear las tablas
+    try:
+        from models.live_metrics import LiveMetrics, LiveAnalysisEvent
+    except ImportError:
+        pass  # Los modelos se importarán cuando estén disponibles
     SQLModel.metadata.create_all(engine)
 
 def get_session():

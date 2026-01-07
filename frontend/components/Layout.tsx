@@ -9,8 +9,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
 
   const navItems = [
-    { name: 'Dashboard', path: '/dashboard', icon: 'dashboard' }, // Updated path
+    { name: 'Dashboard', path: '/dashboard', icon: 'dashboard' },
     { name: 'Práctica', path: '/prep-import', icon: 'videocam' },
+    { name: 'LIVE', path: '/live/1', icon: 'record_voice_over' },
     { name: 'Historial', path: '/history', icon: 'history' },
     { name: 'Ajustes', path: '/profile', icon: 'settings' },
   ];
@@ -30,7 +31,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
         <nav className="flex-1 px-4 flex flex-col gap-2 mt-4">
           {navItems.map((item) => {
-            const isActive = location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path));
+            const isActive = location.pathname === item.path || 
+              (item.path !== '/' && location.pathname.startsWith(item.path)) ||
+              (item.path.startsWith('/live') && location.pathname.startsWith('/live'));
             return (
               <Link
                 key={item.name}

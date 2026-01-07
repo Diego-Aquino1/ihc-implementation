@@ -14,6 +14,7 @@ import FeedbackAnalysis from './pages/FeedbackAnalysis';
 import StrategicBuilder from './pages/StrategicBuilder';
 import History from './pages/History';
 import Profile from './pages/Profile';
+import LiveInterviewPage from './pages/LiveInterviewPage';
 
 const AppContent: React.FC = () => {
     // Global Session State
@@ -49,6 +50,7 @@ const AppContent: React.FC = () => {
                         <Route path="/dashboard" element={<Dashboard session={sessionData} />} />
                         <Route path="/history" element={<History />} />
                         <Route path="/profile" element={<Profile />} />
+                        <Route path="/live/:sessionId" element={<LiveInterviewPage />} />
                         <Route path="/prep-import" element={<PrepImport onNext={(text) => updateConfig({ jdText: text })} />} />
                         <Route path="/prep-config" element={<PrepConfig config={sessionData.config} onChange={updateConfig} />} />
                         <Route path="/ritual" element={<Ritual />} />
