@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GoogleGenAI, LiveServerMessage } from "@google/genai";
-import { generateInterviewerAvatar, analyzeVisualCues, analyzeAnswer, getLiveAPIConfig } from '../services/geminiService';
+import { analyzeVisualCues, analyzeAnswer, getLiveAPIConfig } from '../services/geminiService';
 import { SimulationStage, SessionData, FeedbackData, VisualCue } from '../types';
 
 interface SimulationStageProps {
@@ -70,9 +70,6 @@ const SimulationStagePage: React.FC<SimulationStageProps> = ({
   const [visualFeedback, setVisualFeedback] = useState<VisualCue | null>(null);
   const [visualHistory, setVisualHistory] = useState<VisualCue[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [loadingVideo, setLoadingVideo] = useState(false);
-  const [showVeoUnlock, setShowVeoUnlock] = useState(false);
-  const [veoOptOut, setVeoOptOut] = useState(false);
   const [timer, setTimer] = useState(0);
 
   // Refs
@@ -87,31 +84,12 @@ const SimulationStagePage: React.FC<SimulationStageProps> = ({
   const timerIntervalRef = useRef<number | null>(null);
   const transcriptionRef = useRef<string>(""); // Store user speech
   
-  // 1. Initialize & Veo Video Generation
+  // Avatar generation removed for now; keep cleanup on unmount
   useEffect(() => {
-    const init = async () => {
-        if (!videoUrl && !showVeoUnlock && !veoOptOut) {
-            setLoadingVideo(true);
-            try {
-                const url = await generateInterviewerAvatar(sessionData.config.vibe);
-                if (url) {
-                    setVideoUrl(url);
-                }
-            } catch (e: any) {
-                // Only catch if explicitly flagged as a key error
-                if (e.message === "VEO_KEY_ERROR") {
-                    setShowVeoUnlock(true);
-                }
-            }
-            setLoadingVideo(false);
-        }
-    };
-    init();
-
     return () => {
-       cleanupLiveSession();
+      cleanupLiveSession();
     };
-  }, [sessionData.config.vibe, showVeoUnlock, veoOptOut]);
+  }, []);
 
   // Timer Effect
   useEffect(() => {
@@ -131,28 +109,7 @@ const SimulationStagePage: React.FC<SimulationStageProps> = ({
       return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleUnlockVeo = async () => {
-      try {
-          if ((window as any).aistudio) {
-            await (window as any).aistudio.openSelectKey();
-            setShowVeoUnlock(false); // Triggers re-run of useEffect
-            setLoadingVideo(true);
-          } else {
-              // If widget is missing but user clicked 'Connect Key', assume they updated .env or are retrying
-              // Just hide the modal and let the useEffect retry generation
-              setShowVeoUnlock(false);
-              setLoadingVideo(true);
-          }
-      } catch (e) {
-          console.error("Failed to select key", e);
-      }
-  };
-
-  const handleContinueWithoutAvatar = () => {
-      setVeoOptOut(true);
-      setShowVeoUnlock(false);
-      setLoadingVideo(false);
-  };
+  // Avatar unlock/opt-out removed for now.
 
   // 2. Cleanup Function
   const cleanupLiveSession = () => {
@@ -380,31 +337,16 @@ const SimulationStagePage: React.FC<SimulationStageProps> = ({
           {/* Canvas for capturing frames (hidden) */}
           <canvas ref={canvasRef} className="hidden" />
 
-          {/* 1. INTERVIEWER LAYER (Background) */}
+          {/* 1. INTERVIEWER LAYER (Background) - static background for now */}
           <div className="absolute inset-0 w-full h-full">
-               {loadingVideo ? (
-                   <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900 text-white gap-4">
-                       <span className="material-symbols-outlined text-4xl text-primary animate-spin">auto_awesome</span>
-                       <p className="text-sm font-medium animate-pulse">Generando Avatar con Veo...</p>
-                   </div>
-               ) : videoUrl ? (
-                   <video 
-                       src={videoUrl} 
-                       className="w-full h-full object-cover" 
-                       autoPlay 
-                       loop 
-                       muted 
-                       playsInline
-                   />
-               ) : (
-                   /* STATIC IMAGE FALLBACK */
-                   <div 
-                        className="absolute inset-0 w-full h-full bg-cover bg-center" 
-                        data-alt="Professional female interviewer looking at camera in a modern office setting" 
-                        style={{backgroundImage: 'url("https://lh3.googleusercontent.com/aida-public/AB6AXuDbeDxlDwBKWZ4j4U3d58wmU8s6-VXqzYZHHFQE9dYP3VrQSWtVhXPf-3pUld7HmQ_RqxRGbitaZCzm__u0U0ReW6v4fQdDDEzTHy8j5C04yu76sqZV-eQIq5pRC3a_AyNAmBS-5zBe6EkERZTvBFCZt4cM_nqnw-CGrcaOPagE9T-_B2gPf7W4VySTBeIGo9MsJeAh3HFdEZW3r9F7E947QQQd_Qy7fwiHEKo6OMTLOz3NMaRv7UCjSf1_hGJT3R-TuPcCspNr4fc")'}}
-                   >
-                   </div>
-               )}
+               <div
+                 className="absolute inset-0 w-full h-full bg-cover bg-center"
+                 data-alt="Professional interviewer background"
+                 style={{
+                   backgroundImage:
+                     'url("https://lh3.googleusercontent.com/aida-public/AB6AXuDbeDxlDwBKWZ4j4U3d58wmU8s6-VXqzYZHHFQE9dYP3VrQSWtVhXPf-3pUld7HmQ_RqxRGbitaZCzm__u0U0ReW6v4fQdDDEzTHy8j5C04yu76sqZV-eQIq5pRC3a_AyNAmBS-5zBe6EkERZTvBFCZt4cM_nqnw-CGrcaOPagE9T-_B2gPf7W4VySTBeIGo9MsJeAh3HFdEZW3r9F7E947QQQd_Qy7fwiHEKo6OMTLOz3NMaRv7UCjSf1_hGJT3R-TuPcCspNr4fc")',
+                 }}
+               />
           </div>
 
           {/* Gradient Overlay for Text Readability */}
@@ -456,27 +398,9 @@ const SimulationStagePage: React.FC<SimulationStageProps> = ({
           </div>
 
           {/* 3. CENTER OVERLAYS (Veo Unlock / Agent Speaking) */}
-          {showVeoUnlock && (
-               <div className="absolute inset-0 z-30 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
-                   <div className="bg-[#192633] border border-gray-700 p-8 rounded-2xl max-w-md w-full text-center shadow-2xl">
-                       <div className="size-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-6">
-                           <span className="material-symbols-outlined text-4xl text-primary">lock</span>
-                       </div>
-                       <h3 className="text-2xl font-bold text-white mb-2">Función Premium: Veo Avatar</h3>
-                       <p className="text-slate-400 mb-8">La generación de video realista requiere una API Key válida.</p>
-                       <div className="flex flex-col gap-3">
-                           <button onClick={handleUnlockVeo} className="w-full py-3 bg-primary hover:bg-blue-600 text-white rounded-xl font-bold flex items-center justify-center gap-2">
-                               <span className="material-symbols-outlined">key</span> Reintentar con mi Key
-                           </button>
-                           <button onClick={handleContinueWithoutAvatar} className="w-full py-3 bg-transparent border border-gray-600 hover:bg-gray-700 text-slate-300 rounded-xl font-bold">
-                               Continuar sin Avatar
-                           </button>
-                       </div>
-                   </div>
-               </div>
-          )}
+          {/* Avatar generation and unlock UI removed for now */}
 
-          {isAgentSpeaking && !showVeoUnlock && (
+          {isAgentSpeaking && (
                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-1.5 p-3 rounded-full bg-black/40 backdrop-blur-sm border border-white/10 z-10">
                     <span className="w-1.5 h-4 bg-white rounded-full animate-[bounce_1s_infinite]"></span>
                     <span className="w-1.5 h-6 bg-white rounded-full animate-[bounce_1.2s_infinite]"></span>
@@ -508,7 +432,7 @@ const SimulationStagePage: React.FC<SimulationStageProps> = ({
                <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
                     <button 
                         onClick={handleActionClick}
-                        disabled={loadingVideo || showVeoUnlock || isProcessing}
+                        disabled={isProcessing}
                         className={`group relative flex items-center justify-center size-20 rounded-full shadow-2xl transition-all transform hover:scale-110 ${
                             isLiveConnected 
                             ? 'bg-red-500 hover:bg-red-600 shadow-red-500/50' 
