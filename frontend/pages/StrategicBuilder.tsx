@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { generateStrategicQuestions } from '../services/geminiService';
+// Gemini removed: this page is deprecated in the MVP live flow.
 
 interface StrategicBuilderProps {
   jdText: string;
@@ -16,7 +16,7 @@ const StrategicBuilder: React.FC<StrategicBuilderProps> = ({ jdText, nextPath })
 
   useEffect(() => {
     const fetchSuggestions = async () => {
-       const suggestions = await generateStrategicQuestions(jdText);
+       const suggestions: string[] = [];
        setQuestions(suggestions);
        setIsLoading(false);
     };

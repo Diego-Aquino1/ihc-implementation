@@ -1,13 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { SessionData } from '../types';
 import { api } from '../services/api';
 
-interface DashboardProps {
-  session: SessionData;
-}
-
-const Dashboard: React.FC<DashboardProps> = ({ session }) => {
+const Dashboard: React.FC = () => {
   const [stats, setStats] = useState({
     total_sessions: 0,
     average_score: 0,
@@ -66,43 +61,13 @@ const Dashboard: React.FC<DashboardProps> = ({ session }) => {
       <div className="flex flex-col gap-4">
         <h2 className="text-xl font-bold dark:text-white">Módulos de Entrenamiento</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Link to="/sim/pitch" className="group bg-white dark:bg-surface-dark p-6 rounded-xl border border-gray-200 dark:border-border-dark hover:border-primary/50 transition-colors relative overflow-hidden">
+          <Link to="/live" className="group bg-white dark:bg-surface-dark p-6 rounded-xl border border-gray-200 dark:border-border-dark hover:border-primary/50 transition-colors relative overflow-hidden">
             <div className="absolute top-0 right-0 p-4 opacity-10">
               <span className="material-symbols-outlined text-6xl text-primary">record_voice_over</span>
             </div>
-            <h3 className="text-lg font-bold dark:text-white mb-2">Elevator Pitch</h3>
-            <p className="text-sm text-text-secondary">Perfecciona tu introducción de 2 minutos.</p>
+            <h3 className="text-lg font-bold dark:text-white mb-2">Entrevista en vivo (MVP)</h3>
+            <p className="text-sm text-text-secondary">Coach en tiempo real con postura, mirada y silencios + LLM en backend.</p>
             <div className="mt-4 flex items-center text-primary text-sm font-bold">
-              Comenzar <span className="material-symbols-outlined text-sm ml-1 group-hover:translate-x-1 transition-transform">arrow_forward</span>
-            </div>
-          </Link>
-          <Link to="/sim/star" className="group bg-white dark:bg-surface-dark p-6 rounded-xl border border-gray-200 dark:border-border-dark hover:border-primary/50 transition-colors relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-10">
-              <span className="material-symbols-outlined text-6xl text-purple-500">star</span>
-            </div>
-            <h3 className="text-lg font-bold dark:text-white mb-2">Método STAR</h3>
-            <p className="text-sm text-text-secondary">Estructura tus respuestas de experiencia.</p>
-            <div className="mt-4 flex items-center text-purple-500 text-sm font-bold">
-              Comenzar <span className="material-symbols-outlined text-sm ml-1 group-hover:translate-x-1 transition-transform">arrow_forward</span>
-            </div>
-          </Link>
-          <Link to="/sim/pressure" className="group bg-white dark:bg-surface-dark p-6 rounded-xl border border-gray-200 dark:border-border-dark hover:border-primary/50 transition-colors relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-10">
-              <span className="material-symbols-outlined text-6xl text-red-500">crisis_alert</span>
-            </div>
-            <h3 className="text-lg font-bold dark:text-white mb-2">Simulador de Presión</h3>
-            <p className="text-sm text-text-secondary">Entrena tu compostura ante preguntas hostiles.</p>
-            <div className="mt-4 flex items-center text-red-500 text-sm font-bold">
-              Comenzar <span className="material-symbols-outlined text-sm ml-1 group-hover:translate-x-1 transition-transform">arrow_forward</span>
-            </div>
-          </Link>
-          <Link to="/sim/closing/question" className="group bg-white dark:bg-surface-dark p-6 rounded-xl border border-gray-200 dark:border-border-dark hover:border-primary/50 transition-colors relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-10">
-              <span className="material-symbols-outlined text-6xl text-green-500">psychology_alt</span>
-            </div>
-            <h3 className="text-lg font-bold dark:text-white mb-2">Pregunta Estratégica</h3>
-            <p className="text-sm text-text-secondary">Aprende a cerrar la entrevista con impacto.</p>
-            <div className="mt-4 flex items-center text-green-500 text-sm font-bold">
               Comenzar <span className="material-symbols-outlined text-sm ml-1 group-hover:translate-x-1 transition-transform">arrow_forward</span>
             </div>
           </Link>

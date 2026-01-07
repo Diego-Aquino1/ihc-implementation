@@ -1,15 +1,12 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SimulationConfig } from '../types';
+import { loadAgentConfig, saveAgentConfig } from '../services/agentConfig';
 
-interface PrepConfigProps {
-  config: SimulationConfig;
-  onChange: (config: Partial<SimulationConfig>) => void;
-}
-
-const PrepConfig: React.FC<PrepConfigProps> = ({ config, onChange }) => {
+const PrepConfig: React.FC = () => {
   const navigate = useNavigate();
-  const [objective, setObjective] = useState('');
+  const initial = loadAgentConfig();
+  const [config, setConfig] = useState(initial);
+  const [objective, setObjective] = useState(initial.learningObjective || '');
 
   const vibes = [
     { 
@@ -47,8 +44,9 @@ const PrepConfig: React.FC<PrepConfigProps> = ({ config, onChange }) => {
   ];
 
   const handleStart = () => {
-      onChange({ learningObjective: objective });
-      navigate('/ritual');
+      const next = saveAgentConfig({ ...config, learningObjective: objective });
+      setConfig(next);
+      navigate('/live');
   }
 
   return (
@@ -92,7 +90,7 @@ const PrepConfig: React.FC<PrepConfigProps> = ({ config, onChange }) => {
                 return (
                     <div 
                         key={v.id}
-                        onClick={() => onChange({ vibe: v.id as any })}
+                        onClick={() => setConfig(saveAgentConfig({ vibe: v.id as any }))}
                         className={`cursor-pointer group relative flex flex-col gap-3 p-3 rounded-xl border-2 transition-all ${
                             isSelected 
                             ? 'border-primary bg-primary/5 dark:bg-[#131e2b]' 
@@ -170,7 +168,7 @@ const PrepConfig: React.FC<PrepConfigProps> = ({ config, onChange }) => {
                 return (
                     <div 
                         key={f.id}
-                        onClick={() => onChange({ questionFocus: f.id as any })}
+                        onClick={() => setConfig(saveAgentConfig({ questionFocus: f.id as any }))}
                         className={`cursor-pointer flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all h-full text-center ${
                             isSelected 
                             ? 'bg-primary/5 border-primary' 

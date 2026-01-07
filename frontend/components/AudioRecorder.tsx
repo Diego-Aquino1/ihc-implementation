@@ -5,9 +5,10 @@ interface AudioRecorderProps {
   onRecordingComplete: (blob: Blob) => void;
   onToggleRecording: () => void;
   disabled?: boolean;
+  variant?: 'full' | 'icon';
 }
 
-const AudioRecorder: React.FC<AudioRecorderProps> = ({ isRecording, onRecordingComplete, onToggleRecording, disabled }) => {
+const AudioRecorder: React.FC<AudioRecorderProps> = ({ isRecording, onRecordingComplete, onToggleRecording, disabled, variant = 'full' }) => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -80,26 +81,30 @@ const AudioRecorder: React.FC<AudioRecorderProps> = ({ isRecording, onRecordingC
       <button
         onClick={handleToggle}
         disabled={disabled}
-        className={`group relative flex items-center justify-center size-20 rounded-full transition-all transform hover:scale-105 shadow-xl ${
+        className={`group relative flex items-center justify-center ${variant === 'icon' ? 'size-24' : 'size-20'} rounded-full transition-all transform hover:scale-105 shadow-xl ${
             isRecording ? 'bg-red-600 hover:bg-red-500' : 'bg-primary hover:bg-blue-600'
         } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
       >
-        <span className={`material-symbols-outlined text-white text-3xl ${isRecording ? 'animate-pulse' : ''}`}>
+        <span className={`material-symbols-outlined text-white ${variant === 'icon' ? 'text-4xl' : 'text-3xl'} ${isRecording ? 'animate-pulse' : ''}`}>
            {isRecording ? 'stop' : 'mic'}
         </span>
         {isRecording && (
              <span className="absolute inset-0 rounded-full border-2 border-white/30 animate-ping"></span>
         )}
       </button>
-      <p className="mt-4 text-slate-900 dark:text-white font-medium text-lg">
-          {isRecording ? 'Grabando respuesta...' : 'Grabar respuesta'}
-      </p>
-      <p className="text-sm text-slate-500 dark:text-text-secondary">
-          {isRecording ? 'Presiona para detener' : 'Presiona para hablar'}
-      </p>
+      {variant === 'full' && (
+        <>
+          <p className="mt-4 text-slate-900 dark:text-white font-medium text-lg">
+            {isRecording ? 'Grabando respuesta...' : 'Grabar respuesta'}
+          </p>
+          <p className="text-sm text-slate-500 dark:text-text-secondary">
+            {isRecording ? 'Presiona para detener' : 'Presiona para hablar'}
+          </p>
+        </>
+      )}
       
       {/* Visualizer Mock */}
-      {isRecording && (
+      {variant === 'full' && isRecording && (
           <div className="flex items-center gap-1 h-6 mt-2">
              <div className="w-1 bg-red-500 audio-bar rounded-full" style={{animationDuration: '0.6s'}}></div>
              <div className="w-1 bg-red-500 audio-bar rounded-full" style={{animationDuration: '0.9s'}}></div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { generateInterviewSpeech, transcribeAudio, analyzeAnswer } from '../services/geminiService';
+// Gemini removed: this page is deprecated in the MVP live flow.
 import AudioRecorder from '../components/AudioRecorder';
 import { SimulationStage, SessionData, FeedbackData } from '../types';
 
@@ -84,7 +84,7 @@ const SimulationStagePage: React.FC<SimulationStageProps> = ({
           try { sourceNodeRef.current.stop(); } catch(e) {}
       }
 
-      const base64Audio = await generateInterviewSpeech(description);
+      const base64Audio = null;
       
       if (!active) return;
 
@@ -133,10 +133,10 @@ const SimulationStagePage: React.FC<SimulationStageProps> = ({
     setIsProcessing(true);
 
     // 1. Transcribe
-    const transcription = await transcribeAudio(blob);
+    const transcription = "Transcripción no disponible (MVP live usa backend).";
     
     // 2. Analyze
-    const feedback = await analyzeAnswer(transcription, description, stage);
+    const feedback: any = { score: 0, transcription, strengths: [], weaknesses: ["Módulo legacy deshabilitado"], suggestions: [], pacing: "Optimal", fillerWordCount: 0, emotionalTone: "Neutral" };
     
     // 3. Save & Navigate
     onSave(feedback);

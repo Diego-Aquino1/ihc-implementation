@@ -1,11 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { saveAgentConfig } from '../services/agentConfig';
 
-interface PrepImportProps {
-  onNext: (jdText: string) => void;
-}
-
-const PrepImport: React.FC<PrepImportProps> = ({ onNext }) => {
+const PrepImport: React.FC = () => {
   const navigate = useNavigate();
   const [jdText, setJdText] = useState('');
   const [isPasting, setIsPasting] = useState(false);
@@ -13,7 +10,7 @@ const PrepImport: React.FC<PrepImportProps> = ({ onNext }) => {
   const handleNext = () => {
     // In a real app we might validate files here, 
     // for now we just proceed, optionally passing the pasted text
-    onNext(jdText);
+    saveAgentConfig({ jdText });
     navigate('/prep-config');
   };
 

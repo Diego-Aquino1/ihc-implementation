@@ -3,3 +3,7 @@ uvicorn
 sqlmodel
 aiosqlite
 pydantic
+httpx
+python-multipart
+openai>=1.40.0
+python-dotenv>=1.0.1

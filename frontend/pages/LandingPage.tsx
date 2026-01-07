@@ -54,6 +54,9 @@ const LandingPage: React.FC = () => {
                     <Link to="/dashboard" className="flex min-w-[84px] cursor-pointer items-center justify-center overflow-hidden rounded-lg h-12 px-6 bg-primary text-white text-base font-bold leading-normal tracking-[0.015em] hover:bg-blue-600 transition-all shadow-lg shadow-primary/20">
                       <span className="truncate">Comenzar Ahora</span>
                     </Link>
+                    <Link to="/live" className="flex min-w-[84px] cursor-pointer items-center justify-center overflow-hidden rounded-lg h-12 px-6 bg-black/5 dark:bg-white/10 border border-slate-200 dark:border-border-dark text-slate-900 dark:text-white text-base font-bold leading-normal tracking-[0.015em] hover:bg-slate-100 dark:hover:bg-card-dark transition-all">
+                      <span className="truncate">Probar Live (MVP)</span>
+                    </Link>
                     <button className="flex min-w-[84px] cursor-pointer items-center justify-center overflow-hidden rounded-lg h-12 px-6 bg-transparent border border-slate-200 dark:border-border-dark text-slate-900 dark:text-white text-base font-bold leading-normal tracking-[0.015em] hover:bg-slate-100 dark:hover:bg-card-dark transition-all">
                       <span className="truncate">Cómo Funciona</span>
                     </button>
