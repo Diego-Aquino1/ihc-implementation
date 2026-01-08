@@ -11,7 +11,7 @@ export type LiveMessage = {
   [key: string]: any;
 };
 
-export type LiveStage = 'introduction' | 'experience' | 'behavioral' | 'closing';
+export type LiveStage = 'introduction' | 'experience' | 'behavioral' | 'stress' | 'closing';
 
 export interface LiveSession {
   session_id: number;

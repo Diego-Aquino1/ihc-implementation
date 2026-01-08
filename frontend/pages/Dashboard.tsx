@@ -14,9 +14,15 @@ const Dashboard: React.FC<DashboardProps> = ({ session }) => {
     score_change: 0,
     favorite_vibe: 'Loading...'
   });
+  const [nextLiveSessionId, setNextLiveSessionId] = useState(1);
 
   useEffect(() => {
     api.getDashboardStats().then(setStats).catch(console.error);
+    // Obtener el siguiente ID de sesión LIVE del localStorage
+    const lastId = localStorage.getItem('lastLiveSessionId');
+    if (lastId) {
+      setNextLiveSessionId(parseInt(lastId) + 1);
+    }
   }, []);
 
   return (
@@ -26,10 +32,23 @@ const Dashboard: React.FC<DashboardProps> = ({ session }) => {
           <h1 className="text-3xl md:text-4xl font-black text-slate-900 dark:text-white mb-2">Hola, Alex</h1>
           <p className="text-slate-500 dark:text-text-secondary">Estás progresando muy bien. Tu confianza ha aumentado un 12% esta semana.</p>
         </div>
-        <Link to="/prep-import" className="bg-primary hover:bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-500/20 transition-all flex items-center gap-2">
-          <span className="material-symbols-outlined">add_circle</span>
-          Nueva Práctica
-        </Link>
+        <div className="flex gap-3">
+          <Link to="/prep-import" className="bg-primary hover:bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-500/20 transition-all flex items-center gap-2">
+            <span className="material-symbols-outlined">add_circle</span>
+            Nueva Práctica
+          </Link>
+          <Link 
+            to={`/live/${nextLiveSessionId}`}
+            onClick={() => {
+              localStorage.setItem('lastLiveSessionId', nextLiveSessionId.toString());
+              setNextLiveSessionId(nextLiveSessionId + 1);
+            }}
+            className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-green-500/20 transition-all flex items-center gap-2"
+          >
+            <span className="material-symbols-outlined">videocam</span>
+            LIVE Interview
+          </Link>
+        </div>
       </div>
 
       {/* Stats Grid */}

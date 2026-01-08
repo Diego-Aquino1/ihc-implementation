@@ -6,9 +6,10 @@ import json
 import logging
 from typing import Dict, Any
 from datetime import datetime
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Depends
 from fastapi.websockets import WebSocketState
 from sqlmodel import Session, select
+from typing import Optional, List
 
 from services.live_session import (
     get_session,
@@ -17,7 +18,14 @@ from services.live_session import (
     update_session_progress,
     LiveStage,
 )
+from services.live_session_persistence import (
+    get_live_session,
+    get_user_live_sessions,
+    get_session_metrics,
+    create_live_session as create_persisted_session
+)
 from database import engine
+from sqlmodel import Session as DBSession
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +103,74 @@ def save_final_metrics(session_id: int, stats: Dict[str, Any], visual_cue: Dict[
 _active_connections: Dict[int, WebSocket] = {}
 
 
+# ==================== HTTP ENDPOINTS ====================
+
+@router.get("/sessions")
+async def get_sessions_endpoint(user_id: Optional[int] = None, limit: int = 50):
+    """Obtiene todas las sesiones LIVE del usuario (o todas si user_id es None)"""
+    try:
+        sessions = get_user_live_sessions(user_id=user_id, limit=limit)
+        return {
+            "sessions": [session.to_dict() for session in sessions],
+            "total": len(sessions)
+        }
+    except Exception as e:
+        logger.error(f"Error getting sessions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/sessions/{session_id}")
+async def get_session_detail_endpoint(session_id: int):
+    """Obtiene los detalles completos de una sesión LIVE"""
+    try:
+        session = get_live_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+        return session.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting session {session_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/sessions/{session_id}/metrics")
+async def get_metrics_endpoint(session_id: int):
+    """Obtiene las métricas completas de una sesión LIVE"""
+    try:
+        metrics_data = get_session_metrics(session_id)
+        if not metrics_data:
+            raise HTTPException(status_code=404, detail=f"Metrics for session {session_id} not found")
+        return metrics_data
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting metrics for session {session_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/sessions/{session_id}/full")
+async def get_full_session_endpoint(session_id: int):
+    """Obtiene la sesión completa con métricas"""
+    try:
+        session = get_live_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+        
+        metrics_data = get_session_metrics(session_id)
+        return {
+            "session": session.to_dict(),
+            "metrics": metrics_data.get("metrics") if metrics_data else None
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting full session {session_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== WEBSOCKET ENDPOINT ====================
+
 @router.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: int):
     """
@@ -117,12 +193,20 @@ async def websocket_endpoint(websocket: WebSocket, session_id: int):
     await websocket.accept()
     
     try:
-        # Obtener o crear sesión
+        # Obtener o crear sesión en memoria
         session = get_session(session_id)
         if not session:
-            # Crear nueva sesión (user_id se puede obtener del primer mensaje)
+            # Crear nueva sesión en memoria (user_id se puede obtener del primer mensaje)
             session = create_session(session_id)
-            logger.info(f"Created new LIVE session: {session_id}")
+            logger.info(f"Created new LIVE session in memory: {session_id}")
+            
+            # Crear también la sesión en la base de datos
+            try:
+                from services.live_session_persistence import create_live_session
+                create_live_session(session_id, user_id=None)  # user_id puede ser None por ahora
+                logger.info(f"Created live session {session_id} in database")
+            except Exception as e:
+                logger.error(f"Error creating live session in database: {e}")
         
         # Registrar conexión
         _active_connections[session_id] = websocket
@@ -150,6 +234,22 @@ async def websocket_endpoint(websocket: WebSocket, session_id: int):
                         if session and session.is_active:
                             new_stage = session.check_stage_transition()
                             if new_stage:
+                                # Actualizar progreso en la base de datos
+                                try:
+                                    from services.live_session_persistence import update_session_progress
+                                    from datetime import datetime
+                                    # Calcular duración de la etapa anterior
+                                    if session.stage_manager.current_stage_start_time:
+                                        elapsed = (datetime.utcnow() - session.stage_manager.current_stage_start_time).total_seconds()
+                                        update_session_progress(
+                                            session_id=session_id,
+                                            stage=new_stage.value,
+                                            stage_duration=int(elapsed)
+                                        )
+                                        logger.info(f"Updated progress in DB: stage={new_stage.value}, duration={int(elapsed)}s")
+                                except Exception as e:
+                                    logger.error(f"Error updating session progress in DB: {e}")
+                                
                                 # Notificar cambio de etapa al cliente
                                 try:
                                     await websocket.send_json({
@@ -249,16 +349,68 @@ async def websocket_endpoint(websocket: WebSocket, session_id: int):
                     # Sesión finalizada, guardar estadísticas finales
                     stats = message.get("stats", {})
                     visual_cue = message.get("visualCue", {})
+                    duration_seconds = message.get("duration_seconds", 0)
+                    stages_completed = message.get("stages_completed", 0)
                     
                     logger.info(f"Session {session_id} ended. Saving final stats...")
                     
-                    # Guardar métricas finales
-                    save_final_metrics(session_id, stats, visual_cue)
-                    
-                    await websocket.send_json({
-                        "type": "session_end_confirmed",
-                        "stats": stats
-                    })
+                    # Finalizar sesión en la base de datos y guardar métricas
+                    try:
+                        from services.live_session_persistence import finalize_session
+                        from datetime import datetime
+                        
+                        metrics_data = {
+                            "stats": stats,
+                            "visualCue": visual_cue
+                        }
+                        
+                        # Calcular stages_completed basado en la etapa actual
+                        if not stages_completed and session:
+                            current_stage = session.current_stage
+                            stage_order = ["introduction", "experience", "behavioral", "stress", "closing"]
+                            try:
+                                stage_index = stage_order.index(current_stage.value if hasattr(current_stage, 'value') else current_stage)
+                                stages_completed = stage_index + 1  # +1 porque es 1-indexed
+                            except ValueError:
+                                stages_completed = 5  # Por defecto
+                        
+                        finalized_session = finalize_session(
+                            session_id=session_id,
+                            status="completed",
+                            duration_seconds=duration_seconds or 0,
+                            stages_completed=stages_completed,
+                            metrics=metrics_data
+                        )
+                        
+                        # Obtener métricas guardadas
+                        from services.live_session_persistence import get_session_metrics
+                        metrics_result = get_session_metrics(session_id)
+                        
+                        if finalized_session:
+                            response_data = {
+                                "type": "session_end_confirmed",
+                                "session": finalized_session.to_dict(),
+                                "stats": stats
+                            }
+                            if metrics_result and metrics_result.get("metrics"):
+                                response_data["metrics"] = metrics_result["metrics"].to_dict()
+                            
+                            await websocket.send_json(response_data)
+                        else:
+                            # Fallback a método anterior si falla la persistencia
+                            save_final_metrics(session_id, stats, visual_cue)
+                            await websocket.send_json({
+                                "type": "session_end_confirmed",
+                                "stats": stats
+                            })
+                    except Exception as e:
+                        logger.error(f"Error finalizing session in DB: {e}")
+                        # Fallback a método anterior
+                        save_final_metrics(session_id, stats, visual_cue)
+                        await websocket.send_json({
+                            "type": "session_end_confirmed",
+                            "stats": stats
+                        })
                 
                 elif message_type == "video_frame":
                     # Frame de video del usuario recibido
@@ -315,11 +467,71 @@ async def websocket_endpoint(websocket: WebSocket, session_id: int):
                         session.stage_manager.start_session()
                         # Resetear otros estados si es necesario
                         session.questions_count = 0
+                        session.set_agent_speaking(False)
                         logger.info(f"Session {session_id} reset to beginning")
                         await websocket.send_json({
                             "type": "session_reset",
                             "session": session.to_dict(),
                             "message": "Session reset to beginning"
+                        })
+                
+                elif message_type == "agent_speaking_start":
+                    # Cliente notifica que la IA empezó a hablar
+                    if session:
+                        session.set_agent_speaking(True)
+                        logger.debug(f"Agent started speaking in session {session_id}")
+                
+                elif message_type == "agent_speaking_end":
+                    # Cliente notifica que la IA terminó de hablar
+                    if session:
+                        session.set_agent_speaking(False)
+                        logger.debug(f"Agent finished speaking in session {session_id}")
+                        # Verificar si hay una transición pendiente ahora que la IA terminó
+                        new_stage = session.check_stage_transition()
+                        if new_stage:
+                            await websocket.send_json({
+                                "type": "stage_update",
+                                "session": session.to_dict(),
+                                "message": f"Transición a etapa: {new_stage.value} (después de que la IA terminó)"
+                            })
+                
+                elif message_type == "session_pause":
+                    # Cliente solicita pausar/reanudar la sesión
+                    if session:
+                        paused = data.get("paused", False)
+                        session.is_paused = paused
+                        
+                        # Actualizar paused_seconds en la base de datos
+                        try:
+                            from models.live_session import LiveSession
+                            from sqlmodel import Session as DBSession, select
+                            
+                            # Si se está pausando, guardar timestamp; si se reanuda, calcular diferencia
+                            if paused:
+                                # Iniciar pausa - guardar timestamp
+                                if not session._pause_start_time:
+                                    session._pause_start_time = datetime.utcnow()
+                            else:
+                                # Terminar pausa - calcular tiempo pausado y actualizar DB
+                                if session._pause_start_time:
+                                    pause_duration = (datetime.utcnow() - session._pause_start_time).total_seconds()
+                                    # Actualizar paused_seconds en la sesión persistida
+                                    with DBSession(engine) as db:
+                                        db_session = db.exec(select(LiveSession).where(LiveSession.id == session_id)).first()
+                                        if db_session:
+                                            db_session.paused_seconds = int(db_session.paused_seconds or 0) + int(pause_duration)
+                                            db_session.updated_at = datetime.utcnow()
+                                            db.add(db_session)
+                                            db.commit()
+                                            logger.info(f"Updated paused_seconds for session {session_id}: +{int(pause_duration)}s")
+                                    session._pause_start_time = None
+                        except Exception as e:
+                            logger.error(f"Error updating pause time: {e}")
+                        
+                        logger.info(f"Session {session_id} {'paused' if paused else 'resumed'}")
+                        await websocket.send_json({
+                            "type": "session_paused" if paused else "session_resumed",
+                            "message": f"Session {'paused' if paused else 'resumed'}"
                         })
                 
                 else:

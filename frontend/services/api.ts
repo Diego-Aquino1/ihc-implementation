@@ -24,5 +24,29 @@ export const api = {
         const response = await fetch(`${API_URL}/dashboard/stats`);
         if (!response.ok) throw new Error('Failed to fetch stats');
         return response.json();
+    },
+    // LIVE Interview API
+    getLiveSessions: async (userId?: number, limit: number = 50) => {
+        const params = new URLSearchParams();
+        if (userId) params.append('user_id', userId.toString());
+        params.append('limit', limit.toString());
+        const response = await fetch(`${API_URL}/live/sessions?${params.toString()}`);
+        if (!response.ok) throw new Error('Failed to fetch live sessions');
+        return response.json();
+    },
+    getLiveSession: async (sessionId: number) => {
+        const response = await fetch(`${API_URL}/live/sessions/${sessionId}`);
+        if (!response.ok) throw new Error('Failed to fetch live session');
+        return response.json();
+    },
+    getLiveSessionMetrics: async (sessionId: number) => {
+        const response = await fetch(`${API_URL}/live/sessions/${sessionId}/metrics`);
+        if (!response.ok) throw new Error('Failed to fetch session metrics');
+        return response.json();
+    },
+    getFullLiveSession: async (sessionId: number) => {
+        const response = await fetch(`${API_URL}/live/sessions/${sessionId}/full`);
+        if (!response.ok) throw new Error('Failed to fetch full session');
+        return response.json();
     }
 };

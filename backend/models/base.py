@@ -1,3 +1,6 @@
+"""
+Modelos base del sistema
+"""
 from typing import Optional, List
 from sqlmodel import Field, SQLModel, Relationship
 from datetime import datetime
@@ -20,3 +23,4 @@ class SessionData(SQLModel, table=True):
     feedback_summary: Optional[str] = None
     
     user: Optional[User] = Relationship(back_populates="sessions")
+

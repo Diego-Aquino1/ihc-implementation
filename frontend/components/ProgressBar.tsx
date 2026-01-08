@@ -1,6 +1,6 @@
 import React from 'react';
 
-export type LiveStage = 'introduction' | 'experience' | 'behavioral' | 'closing';
+export type LiveStage = 'introduction' | 'experience' | 'behavioral' | 'stress' | 'closing';
 
 interface ProgressBarProps {
   currentStage: LiveStage;
@@ -13,16 +13,17 @@ interface ProgressBarProps {
 const STAGES: Array<{ key: LiveStage; label: string; shortLabel: string }> = [
   { key: 'introduction', label: 'Introducción', shortLabel: 'Intro' },
   { key: 'experience', label: 'Experiencia', shortLabel: 'Exp' },
-  { key: 'behavioral', label: 'Comportamiento', shortLabel: 'Comp' },
+  { key: 'behavioral', label: 'Comportamiento', shortLabel: 'Comportam.' },
+  { key: 'stress', label: 'Análisis de Estrés', shortLabel: 'Estrés' },
   { key: 'closing', label: 'Cierre', shortLabel: 'Cierre' },
 ];
 
-const ProgressBar: React.FC<ProgressBarProps> = ({ 
-  currentStage, 
-  progress, 
+const ProgressBar: React.FC<ProgressBarProps> = ({
+  currentStage,
+  progress,
   stageProgress = 0,
   timeRemaining,
-  className = '' 
+  className = ''
 }) => {
   const currentStageIndex = STAGES.findIndex(s => s.key === currentStage);
   const progressPercentage = Math.round(progress * 100);
@@ -38,7 +39,7 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
             {timeRemaining}s
           </div>
         )}
-        
+
         {/* Barra de progreso principal - colores neutros */}
         <div className="relative h-1 bg-white/20 rounded-full overflow-hidden">
           <div
@@ -50,7 +51,7 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
             <div
               key={index}
               className="absolute top-0 h-full w-px bg-white/30"
-              style={{ left: `${(index + 1) * 25}%` }}
+              style={{ left: `${(index + 1) * 20}%` }}
             />
           ))}
         </div>
@@ -64,13 +65,12 @@ const ProgressBar: React.FC<ProgressBarProps> = ({
             return (
               <div key={stage.key} className="flex-1 text-center">
                 <div
-                  className={`text-[9px] font-medium ${
-                    isActive 
-                      ? 'text-white font-semibold' 
-                      : isCompleted 
-                      ? 'text-white/60' 
-                      : 'text-white/40'
-                  }`}
+                  className={`text-[9px] font-medium ${isActive
+                      ? 'text-white font-semibold'
+                      : isCompleted
+                        ? 'text-white/60'
+                        : 'text-white/40'
+                    }`}
                 >
                   {stage.shortLabel}
                 </div>

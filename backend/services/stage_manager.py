@@ -1,7 +1,13 @@
 """
 Stage Manager - Gestión de etapas y transiciones automáticas
-Maneja el timer de 60 segundos por etapa y las transiciones
-El timer solo comienza cuando el entrevistador empieza a hablar
+Maneja timers específicos por etapa y las transiciones suaves:
+- Introducción: 45s
+- Experiencia: 75s
+- Comportamiento: 75s
+- Análisis de Estrés: 30s
+- Cierre: 45s
+El timer solo comienza cuando el entrevistador empieza a hablar.
+Permite hasta 25% de tiempo adicional si la IA está hablando al momento de transición.
 """
 from datetime import datetime
 from typing import Optional
@@ -16,6 +22,7 @@ class LiveStage(str, Enum):
     INTRODUCTION = "introduction"
     EXPERIENCE = "experience"
     BEHAVIORAL = "behavioral"
+    STRESS = "stress"
     CLOSING = "closing"
 
 
@@ -24,11 +31,22 @@ STAGE_ORDER = [
     LiveStage.INTRODUCTION,
     LiveStage.EXPERIENCE,
     LiveStage.BEHAVIORAL,
+    LiveStage.STRESS,
     LiveStage.CLOSING,
 ]
 
-# Duración de cada etapa en segundos
-STAGE_DURATION = 60
+# Duración de cada etapa en segundos (específica por etapa)
+STAGE_DURATIONS = {
+    LiveStage.INTRODUCTION: 45,
+    LiveStage.EXPERIENCE: 75,
+    LiveStage.BEHAVIORAL: 75,
+    LiveStage.STRESS: 30,
+    LiveStage.CLOSING: 45,
+}
+
+# Tiempo máximo adicional permitido si la IA está hablando (proporción del tiempo base)
+# Por ejemplo, 0.25 = 25% adicional (45s + 11s = 56s, 75s + 19s = 94s, etc.)
+MAX_EXTENDED_TIME_RATIO = 0.25
 
 
 class StageManager:
@@ -41,6 +59,17 @@ class StageManager:
         self.current_stage_start_time: Optional[datetime] = None
         self.total_start_time: Optional[datetime] = None
         self.timer_started = False  # Indica si el timer de la etapa actual ha comenzado
+    
+    def get_stage_duration(self, stage: Optional[LiveStage] = None) -> int:
+        """Retorna la duración de la etapa especificada (o la actual si no se especifica)"""
+        if stage is None:
+            stage = self.current_stage
+        return STAGE_DURATIONS.get(stage, 60)
+    
+    def get_max_extended_time(self, stage: Optional[LiveStage] = None) -> int:
+        """Retorna el tiempo máximo adicional para la etapa (proporcional a su duración)"""
+        duration = self.get_stage_duration(stage)
+        return int(duration * MAX_EXTENDED_TIME_RATIO)
         
     def start_session(self):
         """Inicia la sesión (sin iniciar el timer aún)"""
@@ -58,10 +87,13 @@ class StageManager:
             self.timer_started = True
             logger.info(f"Session {self.session_id}: Timer started for stage {self.current_stage.value}")
         
-    def check_and_advance_stage(self) -> Optional[LiveStage]:
+    def check_and_advance_stage(self, force: bool = False) -> Optional[LiveStage]:
         """
-        Verifica si debe avanzar de etapa (60s transcurridos desde que empezó a hablar)
+        Verifica si debe avanzar de etapa según la duración específica de cada etapa
         Retorna la nueva etapa si hubo cambio, None si no
+        
+        Args:
+            force: Si es True, fuerza la transición incluso si no se cumplió el tiempo exacto
         """
         # Si el timer no ha comenzado, no avanzar de etapa
         if not self.timer_started or not self.current_stage_start_time:
@@ -69,12 +101,13 @@ class StageManager:
         
         # Calcular tiempo transcurrido en la etapa actual
         elapsed = (datetime.utcnow() - self.current_stage_start_time).total_seconds()
+        stage_duration = self.get_stage_duration()
         
-        if elapsed >= STAGE_DURATION:
+        if elapsed >= stage_duration or force:
             # Avanzar a la siguiente etapa
             next_stage = self.get_next_stage()
             if next_stage:
-                logger.info(f"Session {self.session_id}: Advancing from {self.current_stage.value} to {next_stage.value} after {elapsed:.1f}s")
+                logger.info(f"Session {self.session_id}: Advancing from {self.current_stage.value} to {next_stage.value} after {elapsed:.1f}s (force={force})")
                 self.advance_to_stage(next_stage)
                 return next_stage
             else:
@@ -99,12 +132,13 @@ class StageManager:
         logger.info(f"Session {self.session_id}: Advanced to stage {stage.value} (waiting for timer start)")
     
     def get_time_remaining(self) -> int:
-        """Retorna segundos restantes en la etapa actual (0 a STAGE_DURATION)"""
+        """Retorna segundos restantes en la etapa actual"""
+        stage_duration = self.get_stage_duration()
         if not self.timer_started or not self.current_stage_start_time:
-            return STAGE_DURATION  # Si el timer no ha comenzado, mostrar tiempo completo
+            return stage_duration  # Si el timer no ha comenzado, mostrar tiempo completo
         
         elapsed = (datetime.utcnow() - self.current_stage_start_time).total_seconds()
-        remaining = max(0, int(STAGE_DURATION - elapsed))
+        remaining = max(0, int(stage_duration - elapsed))
         return remaining
     
     def get_stage_progress(self) -> float:
@@ -112,8 +146,9 @@ class StageManager:
         if not self.timer_started or not self.current_stage_start_time:
             return 0.0  # Si el timer no ha comenzado, progreso es 0
         
+        stage_duration = self.get_stage_duration()
         elapsed = (datetime.utcnow() - self.current_stage_start_time).total_seconds()
-        progress = min(1.0, max(0.0, elapsed / STAGE_DURATION))
+        progress = min(1.0, max(0.0, elapsed / stage_duration))
         return progress
     
     def get_total_progress(self) -> float:
@@ -121,7 +156,8 @@ class StageManager:
         if not self.total_start_time:
             return 0.0
         
-        total_duration = STAGE_DURATION * len(STAGE_ORDER)
+        # Calcular duración total sumando todas las duraciones específicas
+        total_duration = sum(STAGE_DURATIONS.values())
         elapsed = (datetime.utcnow() - self.total_start_time).total_seconds()
         progress = min(1.0, max(0.0, elapsed / total_duration))
         return progress
@@ -148,6 +184,15 @@ class StageManager:
                 "'Cuéntame sobre una situación desafiante', '¿Cómo manejaste un conflicto?', "
                 "'Dame un ejemplo de liderazgo', 'Describe una vez que tuviste que trabajar bajo presión'. "
                 "Busca estructura en las respuestas (Situación, Tarea, Acción, Resultado). Responde en español."
+            ),
+            LiveStage.STRESS: (
+                "Eres un entrevistador profesional. En esta etapa de ANÁLISIS DE ESTRÉS, "
+                "haz UNA pregunta desafiante y difícil para evaluar cómo maneja el candidato la presión. "
+                "Ejemplos: '¿Por qué deberíamos contratarte en lugar de otros 50 candidatos?', "
+                "'Convénceme de que eres la mejor opción en 30 segundos', "
+                "'¿Cuál es tu mayor debilidad profesional y cómo te ha afectado?', "
+                "'Si tu jefe te pide algo poco ético, ¿qué harías?'. "
+                "Mantén un tono profesional pero desafiante. Solo HAZ UNA PREGUNTA en esta etapa. Responde en español."
             ),
             LiveStage.CLOSING: (
                 "Eres un entrevistador profesional. En esta etapa de CIERRE, "

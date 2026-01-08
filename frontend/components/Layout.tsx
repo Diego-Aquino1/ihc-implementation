@@ -11,7 +11,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: 'dashboard' },
     { name: 'Práctica', path: '/prep-import', icon: 'videocam' },
-    { name: 'LIVE', path: '/live/1', icon: 'record_voice_over' },
+    { name: 'LIVE', path: '/live/list', icon: 'record_voice_over' },
     { name: 'Historial', path: '/history', icon: 'history' },
     { name: 'Ajustes', path: '/profile', icon: 'settings' },
   ];

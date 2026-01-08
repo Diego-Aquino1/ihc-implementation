@@ -20,6 +20,9 @@ class LiveSessionState:
         self.questions_count = 0
         self.audio_chunks_received = 0
         self.video_frames_received = 0
+        self.is_agent_speaking = False  # Rastrea si la IA está hablando actualmente
+        self.is_paused = False  # Rastrea si la sesión está en pausa
+        self._pause_start_time: Optional[datetime] = None  # Timestamp de cuando inició la pausa actual
         
         # Stage Manager para gestionar etapas y transiciones
         self.stage_manager = StageManager(session_id)
@@ -36,11 +39,41 @@ class LiveSessionState:
         return self.stage_manager.get_total_progress()
     
     def check_stage_transition(self) -> Optional[LiveStage]:
-        """Verifica si debe avanzar de etapa y retorna la nueva etapa si hay cambio"""
+        """
+        Verifica si debe avanzar de etapa y retorna la nueva etapa si hay cambio.
+        Si la IA está hablando o la sesión está en pausa, espera antes de hacer la transición.
+        """
+        # Si la sesión está en pausa, no hacer transición
+        if self.is_paused:
+            return None
+        
+        # Si la IA está hablando, no hacer transición aún (permitir que termine)
+        if self.is_agent_speaking:
+            # Verificar si el tiempo se ha excedido mucho (máximo tiempo adicional permitido)
+            if self.stage_manager.current_stage_start_time:
+                elapsed = (datetime.utcnow() - self.stage_manager.current_stage_start_time).total_seconds()
+                stage_duration = self.stage_manager.get_stage_duration()
+                max_extended = self.stage_manager.get_max_extended_time()
+                max_elapsed = stage_duration + max_extended
+                if elapsed >= max_elapsed:
+                    # Tiempo máximo excedido, forzar transición
+                    new_stage = self.stage_manager.check_and_advance_stage(force=True)
+                    if new_stage:
+                        self.last_activity = datetime.utcnow()
+                    return new_stage
+            # IA todavía hablando, esperar
+            return None
+        
+        # IA no está hablando, verificar transición normal
         new_stage = self.stage_manager.check_and_advance_stage()
         if new_stage:
             self.last_activity = datetime.utcnow()
         return new_stage
+    
+    def set_agent_speaking(self, is_speaking: bool):
+        """Marca si la IA está hablando o no"""
+        self.is_agent_speaking = is_speaking
+        self.last_activity = datetime.utcnow()
         
     def to_dict(self) -> Dict[str, Any]:
         """Convierte el estado a diccionario para enviar al cliente"""

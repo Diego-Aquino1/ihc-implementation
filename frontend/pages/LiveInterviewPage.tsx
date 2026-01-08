@@ -16,7 +16,7 @@ function createBlob(data: Float32Array): { data: string, mimeType: string } {
   for (let i = 0; i < l; i++) {
     int16[i] = data[i] * 32768;
   }
-  
+
   let binary = '';
   const bytes = new Uint8Array(int16.buffer);
   const len = bytes.byteLength;
@@ -55,20 +55,22 @@ async function decodeAudioData(data: Uint8Array, ctx: AudioContext): Promise<Aud
 const LiveInterviewPage: React.FC = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  
+
   // WebSocket state
   const [wsClient, setWsClient] = useState<LiveWebSocketClient | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [session, setSession] = useState<LiveSession | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('disconnected');
   const [error, setError] = useState<string | null>(null);
-  
+
   // Gemini Live state
   const [isLiveConnected, setIsLiveConnected] = useState(false);
   const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
   const [hasAgentStartedSpeaking, setHasAgentStartedSpeaking] = useState(false);
   const [transcription, setTranscription] = useState<string>('');
-  
+  const [isUserSpeaking, setIsUserSpeaking] = useState(false);
+  const [lastTranscriptionTime, setLastTranscriptionTime] = useState<number>(0);
+
   // Analysis state
   const [audioMetrics, setAudioMetrics] = useState<AudioMetrics>({
     wpm: 0,
@@ -79,12 +81,13 @@ const LiveInterviewPage: React.FC = () => {
   });
   const [visualCue, setVisualCue] = useState<VisualCue | null>(null);
   const [showFeedback, setShowFeedback] = useState(true);
-  
+
   // Timer y Stage Info
   const [timer, setTimer] = useState(0);
   const [timeRemaining, setTimeRemaining] = useState<number | undefined>(undefined);
   const [stageProgress, setStageProgress] = useState<number>(0);
-  
+  const [isPaused, setIsPaused] = useState(false);
+
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -98,6 +101,7 @@ const LiveInterviewPage: React.FC = () => {
   const audioAnalyzerRef = useRef<AudioAnalyzer>(new AudioAnalyzer());
   const visualAnalysisIntervalRef = useRef<number | null>(null);
   const lastVideoFrameTimeRef = useRef<number>(0);
+  const userSpeakingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastStageInfoRequestRef = useRef<number>(0);
   const reconnectNotificationRef = useRef<boolean>(false);
 
@@ -127,6 +131,12 @@ const LiveInterviewPage: React.FC = () => {
 
   // Cleanup function
   const cleanupLiveSession = () => {
+    // Limpiar timeout de detección de usuario hablando
+    if (userSpeakingTimeoutRef.current) {
+      clearTimeout(userSpeakingTimeoutRef.current);
+      userSpeakingTimeoutRef.current = null;
+    }
+
     if (sessionRef.current) {
       // Gemini Live session cleanup
       if (typeof sessionRef.current.then === 'function') {
@@ -134,17 +144,20 @@ const LiveInterviewPage: React.FC = () => {
           if (s && typeof s.close === 'function') {
             s.close();
           }
-        }).catch(() => {});
+        }).catch(() => { });
       } else if (sessionRef.current && typeof sessionRef.current.close === 'function') {
         sessionRef.current.close();
       }
       sessionRef.current = null;
     }
-    
+
     if (inputAudioContextRef.current) {
       inputAudioContextRef.current.close();
       inputAudioContextRef.current = null;
     }
+
+    setIsUserSpeaking(false);
+    setIsAgentSpeaking(false);
     if (audioContextRef.current) {
       audioContextRef.current.close();
       audioContextRef.current = null;
@@ -160,7 +173,7 @@ const LiveInterviewPage: React.FC = () => {
     }
 
     const client = new LiveWebSocketClient(parseInt(sessionId));
-    
+
     client.onMessage((message: LiveMessage) => {
       switch (message.type) {
         case 'connected':
@@ -174,10 +187,15 @@ const LiveInterviewPage: React.FC = () => {
             setStageProgress(message.session.stage_progress || 0);
           }
           break;
-        
+
         case 'session_reset':
           // Sesión reiniciada - resetear estados y actualizar sesión
           console.log('Session reset received:', message.session);
+          // Limpiar timeout de detección de usuario hablando
+          if (userSpeakingTimeoutRef.current) {
+            clearTimeout(userSpeakingTimeoutRef.current);
+            userSpeakingTimeoutRef.current = null;
+          }
           // Limpiar sesión LIVE actual primero
           cleanupLiveSession();
           // Detener stream de video/audio
@@ -189,6 +207,8 @@ const LiveInterviewPage: React.FC = () => {
           setIsLiveConnected(false);
           setIsAgentSpeaking(false);
           setHasAgentStartedSpeaking(false);
+          setIsUserSpeaking(false);
+          setLastTranscriptionTime(0);
           setTranscription('');
           setTimer(0);
           setTimeRemaining(message.session?.time_remaining);
@@ -206,7 +226,7 @@ const LiveInterviewPage: React.FC = () => {
           // Actualizar sesión - esto triggerá el useEffect para reiniciar la sesión LIVE
           setSession(message.session);
           break;
-        
+
         case 'stage_update':
           if (message.session) {
             setSession(message.session);
@@ -215,25 +235,69 @@ const LiveInterviewPage: React.FC = () => {
             // Reset flag cuando cambia de etapa
             setHasAgentStartedSpeaking(false);
             console.log('Stage updated:', message.session.current_stage);
+
+            // Notificar a Gemini Live sobre el cambio de etapa
+            if (sessionRef.current) {
+              const stageNames: Record<string, string> = {
+                introduction: 'INTRODUCCIÓN',
+                experience: 'EXPERIENCIA',
+                behavioral: 'COMPORTAMIENTO',
+                stress: 'ANÁLISIS DE ESTRÉS',
+                closing: 'CIERRE'
+              };
+              const stageName = stageNames[message.session.current_stage] || message.session.current_stage;
+
+              // Solo enviar notificación si la IA no está hablando actualmente
+              // Esto previene interrumpir una pregunta en curso
+              if (!isAgentSpeaking) {
+                sessionRef.current.then((s: any) => {
+                  if (s && typeof s.sendRealtimeInput === 'function') {
+                    // Enviar mensaje claro de transición de etapa
+                    s.sendRealtimeInput({
+                      text: `[SISTEMA: Has avanzado a la etapa de ${stageName}. Ahora debes hacer preguntas específicas de esta nueva etapa. Si acabas de hacer una pregunta de esta etapa, espera la respuesta del candidato antes de continuar. NO repitas la última pregunta.]`
+                    });
+                    console.log(`Notified Gemini Live: Stage changed to ${stageName}`);
+                  }
+                }).catch((err: any) => console.error('Error notifying stage change:', err));
+              } else {
+                console.log(`Delayed stage notification: Agent is currently speaking`);
+                // Esperar a que la IA termine de hablar antes de notificar
+                const checkAndNotify = setInterval(() => {
+                  if (!isAgentSpeaking && sessionRef.current) {
+                    clearInterval(checkAndNotify);
+                    sessionRef.current.then((s: any) => {
+                      if (s && typeof s.sendRealtimeInput === 'function') {
+                        s.sendRealtimeInput({
+                          text: `[SISTEMA: Has avanzado a la etapa de ${stageName}. Continúa con preguntas de esta nueva etapa.]`
+                        });
+                        console.log(`Notified Gemini Live (delayed): Stage changed to ${stageName}`);
+                      }
+                    }).catch((err: any) => console.error('Error notifying stage change:', err));
+                  }
+                }, 500);
+                // Timeout de seguridad: 5 segundos
+                setTimeout(() => clearInterval(checkAndNotify), 5000);
+              }
+            }
           }
           break;
-        
+
         case 'stage_timer_started':
           console.log('Stage timer started on backend');
           break;
-        
+
         case 'stage_info':
           if (message.data) {
             setTimeRemaining(message.data.time_remaining);
             setStageProgress(message.data.stage_progress || 0);
           }
           break;
-        
+
         case 'error':
           setError(message.message || 'Unknown error');
           setConnectionStatus('error');
           break;
-        
+
         default:
           console.log('WebSocket message:', message.type);
       }
@@ -269,12 +333,12 @@ const LiveInterviewPage: React.FC = () => {
 
     setConnectionStatus('connecting');
     let stageInfoInterval: number | null = null;
-    
+
     client.connect()
       .then(() => {
         client.initialize();
         setWsClient(client);
-        
+
         // Solicitar información de etapa cada segundo (para countdown) con debouncing
         stageInfoInterval = window.setInterval(() => {
           if (client.isConnected()) {
@@ -331,55 +395,78 @@ const LiveInterviewPage: React.FC = () => {
         });
 
         streamRef.current = stream;
-        
+
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
 
         // System instruction basada en la etapa actual
         const currentStage = session?.current_stage || 'introduction';
-        const stageInstructions = {
-          introduction: "Eres un entrevistador profesional. En esta etapa, haz preguntas de introducción como 'Cuéntame sobre ti', '¿Quién eres?', '¿Qué te apasiona?'. Sé natural y conversacional. Responde en español.",
-          experience: "Eres un entrevistador profesional. En esta etapa, pregunta sobre experiencia laboral: 'Háblame de tu experiencia', '¿Cuál ha sido tu proyecto más importante?'. Sé específico y busca detalles. Responde en español.",
-          behavioral: "Eres un entrevistador profesional. En esta etapa, haz preguntas comportamentales usando el método STAR: 'Cuéntame sobre una situación desafiante', '¿Cómo manejaste un conflicto?'. Busca estructura en las respuestas. Responde en español.",
-          closing: "Eres un entrevistador profesional. En esta etapa, cierra la entrevista: '¿Tienes alguna pregunta?', '¿Qué te gustaría saber sobre la posición?'. Sé abierto y receptivo. Responde en español."
-        };
+        const systemInstruction = `Eres un entrevistador virtual y coach profesional. Conduces una entrevista estructurada en 5 etapas.
 
-        const systemInstruction = `Eres un entrevistador virtual y coach estricto pero constructivo. ${stageInstructions[currentStage as keyof typeof stageInstructions]}`;
+LA ENTREVISTA TIENE LAS SIGUIENTES ETAPAS (en orden):
+
+1. INTRODUCCIÓN (45s): Haz preguntas de introducción como 'Cuéntame sobre ti', '¿Quién eres?', '¿Qué te apasiona?'. Sé natural y conversacional.
+
+2. EXPERIENCIA (75s): Pregunta sobre experiencia laboral: 'Háblame de tu experiencia', '¿Cuál ha sido tu proyecto más importante?'. Sé específico y busca detalles.
+
+3. COMPORTAMIENTO (75s): Haz preguntas comportamentales usando el método STAR: 'Cuéntame sobre una situación desafiante', '¿Cómo manejaste un conflicto?'. Busca estructura en las respuestas.
+
+4. ANÁLISIS DE ESTRÉS (30s): Haz UNA pregunta desafiante y difícil para evaluar presión. Ejemplos: '¿Por qué deberíamos contratarte?', 'Convénceme en 30 segundos', '¿Cuál es tu mayor debilidad?'. Tono profesional pero desafiante. SOLO UNA PREGUNTA.
+
+5. CIERRE (45s): Cierra profesionalmente: '¿Tienes preguntas?', '¿Qué quieres saber sobre la posición?', '¿Algo más que agregar?'. Sé abierto y receptivo.
+
+REGLAS ESTRICTAS DE ETAPAS:
+- SIEMPRE empiezas en la etapa de INTRODUCCIÓN
+- NUNCA avances a la siguiente etapa por tu cuenta
+- SOLO haz preguntas de la etapa actual
+- El sistema te notificará EXPLÍCITAMENTE con "[SISTEMA: Has avanzado a la etapa de...]" cuando debas cambiar
+- Si ves ese mensaje, ENTONCES y SOLO ENTONCES cambia al tipo de preguntas de esa nueva etapa
+- NO asumas que es momento de cambiar de etapa basándote en el tiempo o número de preguntas
+- Mantén el enfoque en la etapa actual hasta recibir la notificación del sistema
+- Todas las respuestas DEBEN ser en español
+
+REGLAS CRÍTICAS DE CONVERSACIÓN:
+- NUNCA interrumpas al candidato mientras está hablando
+- Espera AL MENOS 2-3 segundos de silencio completo antes de responder
+- Si el candidato está pensando (pausas cortas, "eh", "este", "mm"), espera más tiempo
+- Si interrumpes accidentalmente, di "Perdón, continúa" inmediatamente
+- Detecta señales de finalización: pausas largas (2+ segundos), entonación descendente
+- Sé paciente y da tiempo para que el candidato exprese sus ideas`;
 
         // Connect to Gemini Live
         // La API key se expone vía vite.config.ts desde .env.local
-        const apiKey = (process.env as any).GEMINI_API_KEY || 
-                      (process.env as any).API_KEY ||
-                      import.meta.env.VITE_GEMINI_API_KEY;
+        const apiKey = (process.env as any).GEMINI_API_KEY ||
+          (process.env as any).API_KEY ||
+          import.meta.env.VITE_GEMINI_API_KEY;
         if (!apiKey) {
           throw new Error('GEMINI_API_KEY no está configurada. Agrega GEMINI_API_KEY en frontend/.env.local');
         }
 
         const ai = new GoogleGenAI({ apiKey });
-        
+
         const sessionPromise = ai.live.connect({
           ...getLiveAPIConfig(systemInstruction),
           callbacks: {
             onopen: () => {
               console.log('Gemini Live Session Connected');
               setIsLiveConnected(true);
-              
+
               // Stream Audio In
               const source = inputCtx.createMediaStreamSource(stream);
               const processor = inputCtx.createScriptProcessor(4096, 1, 1);
-              
+
               processor.onaudioprocess = (e) => {
                 const inputData = e.inputBuffer.getChannelData(0);
                 const blob = createBlob(inputData);
-                
+
                 if (sessionRef.current) {
                   sessionRef.current.then((s: any) => {
                     s.sendRealtimeInput({ media: blob });
                   }).catch((err: any) => console.error('Error sending input', err));
                 }
               };
-              
+
               source.connect(processor);
               processor.connect(inputCtx.destination);
             },
@@ -387,17 +474,35 @@ const LiveInterviewPage: React.FC = () => {
               // Capture User Transcription
               if (msg.serverContent?.inputTranscription) {
                 const text = msg.serverContent.inputTranscription.text;
-                if (text) {
+                // No procesar transcripción si está en pausa
+                if (text && !isPaused) {
+                  const now = Date.now();
+
+                  // Detectar que el usuario está hablando
+                  setLastTranscriptionTime(now);
+                  setIsUserSpeaking(true);
+
+                  // Limpiar timeout anterior si existe
+                  if (userSpeakingTimeoutRef.current) {
+                    clearTimeout(userSpeakingTimeoutRef.current);
+                  }
+
+                  // Después de 2.5 segundos sin transcripción nueva, considerar que el usuario terminó
+                  userSpeakingTimeoutRef.current = setTimeout(() => {
+                    setIsUserSpeaking(false);
+                    console.log('User finished speaking (2.5s silence)');
+                  }, 2500);
+
                   transcriptionRef.current += text + ' ';
                   setTranscription(transcriptionRef.current);
-                  
+
                   // Analizar audio (transcripción)
                   audioAnalyzerRef.current.processTranscription(text);
-                  
+
                   // Actualizar métricas de audio
                   const metrics = audioAnalyzerRef.current.getMetrics();
                   setAudioMetrics(metrics);
-                  
+
                   // Notificar al backend sobre transcripción
                   if (wsClient) {
                     wsClient.send({
@@ -412,30 +517,65 @@ const LiveInterviewPage: React.FC = () => {
               // Handle Audio Output
               const audioData = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
               if (audioData && audioContextRef.current) {
+                // No reproducir audio si está en pausa
+                if (isPaused) {
+                  console.log('Blocked AI response: session is paused');
+                  return;
+                }
+
+                // Verificar si el usuario está hablando antes de reproducir la respuesta de la IA
+                const timeSinceLastTranscription = Date.now() - lastTranscriptionTime;
+
+                if (isUserSpeaking || timeSinceLastTranscription < 2000) {
+                  // Usuario todavía hablando o muy poco tiempo desde última transcripción
+                  // Bloquear esta respuesta de la IA
+                  console.log('Blocked AI response: user is still speaking', {
+                    isUserSpeaking,
+                    timeSinceLastTranscription: Math.round(timeSinceLastTranscription / 1000) + 's'
+                  });
+                  return;
+                }
+
+                // Usuario terminó de hablar, permitir respuesta de la IA
                 setIsAgentSpeaking(true);
-                
+
+                // Notificar al backend que la IA empezó a hablar
+                if (wsClient) {
+                  wsClient.send({ type: 'agent_speaking_start' });
+                }
+
                 // Si es la primera vez que el entrevistador habla en esta etapa, iniciar el timer
                 if (!hasAgentStartedSpeaking && wsClient) {
                   setHasAgentStartedSpeaking(true);
                   wsClient.send({ type: 'start_stage_timer' });
                   console.log('Timer started: Interviewer started speaking');
                 }
-                
+
                 const buffer = await decodeAudioData(decodeBase64(audioData), audioContextRef.current);
                 const source = audioContextRef.current.createBufferSource();
                 source.buffer = buffer;
                 source.connect(audioContextRef.current.destination);
-                
+
                 const startTime = Math.max(nextStartTimeRef.current, audioContextRef.current.currentTime);
                 source.start(startTime);
                 nextStartTimeRef.current = startTime + buffer.duration;
-                
-                source.onended = () => setIsAgentSpeaking(false);
+
+                source.onended = () => {
+                  setIsAgentSpeaking(false);
+                  // Notificar al backend que la IA terminó de hablar
+                  if (wsClient) {
+                    wsClient.send({ type: 'agent_speaking_end' });
+                  }
+                };
               }
-              
+
               // Handle Turn Completion
               if (msg.serverContent?.turnComplete) {
                 setIsAgentSpeaking(false);
+                // Notificar al backend que la IA terminó de hablar
+                if (wsClient) {
+                  wsClient.send({ type: 'agent_speaking_end' });
+                }
               }
             },
             onclose: () => {
@@ -473,7 +613,7 @@ const LiveInterviewPage: React.FC = () => {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
     };
-  }, [isConnected, wsClient, session?.current_stage]);
+  }, [isConnected, wsClient]);
 
   // Capturar frames de video periódicamente y analizar (optimizado)
   useEffect(() => {
@@ -486,37 +626,40 @@ const LiveInterviewPage: React.FC = () => {
     const VISUAL_ANALYSIS_INTERVAL = 3000; // 3 segundos (antes 2 segundos)
 
     const interval = setInterval(async () => {
+      // No capturar frames si está en pausa
+      if (isPaused) return;
+
       const video = videoRef.current;
       const canvas = canvasRef.current;
       const now = Date.now();
-      
+
       if (video && canvas && video.readyState === video.HAVE_ENOUGH_DATA && wsClient?.isConnected()) {
         const ctx = canvas.getContext('2d');
         if (ctx) {
           const ANALYSIS_WIDTH = 320;
           const ANALYSIS_HEIGHT = 180;
-          
+
           canvas.width = ANALYSIS_WIDTH;
           canvas.height = ANALYSIS_HEIGHT;
           ctx.drawImage(video, 0, 0, ANALYSIS_WIDTH, ANALYSIS_HEIGHT);
-          
+
           // Solo enviar frame si ha pasado el intervalo
           if (now - lastVideoFrameTimeRef.current >= VIDEO_FRAME_INTERVAL) {
             const imageData = canvas.toDataURL('image/jpeg', 0.3); // Calidad reducida de 0.5 a 0.3
             wsClient.sendVideoFrame(imageData);
             lastVideoFrameTimeRef.current = now;
           }
-          
+
           // Análisis visual con Gemini Flash (cada 3 segundos para no saturar)
           if (!visualAnalysisIntervalRef.current || now - visualAnalysisIntervalRef.current > VISUAL_ANALYSIS_INTERVAL) {
             visualAnalysisIntervalRef.current = now;
-            
+
             // Análisis visual en background (solo si no hay análisis pendiente)
             const base64 = canvas.toDataURL('image/jpeg', 0.3).split(',')[1];
             analyzeVisualCues(base64).then(cue => {
               if (cue && wsClient?.isConnected()) {
                 setVisualCue(cue);
-                
+
                 // Enviar análisis visual al backend
                 wsClient.send({
                   type: 'visual_analysis',
@@ -540,22 +683,88 @@ const LiveInterviewPage: React.FC = () => {
   const handleEndSession = () => {
     // Obtener estadísticas finales
     const finalStats = audioAnalyzerRef.current.getStats();
-    
+
+    // Calcular duración total y etapas completadas
+    const durationSeconds = Math.floor(timer);
+    const currentStageIndex = session ? ['introduction', 'experience', 'behavioral', 'stress', 'closing'].indexOf(session.current_stage) : 0;
+    const stagesCompleted = currentStageIndex >= 0 ? currentStageIndex + 1 : 5;
+
+    // Preparar datos para el backend
+    const endData = {
+      type: 'session_end',
+      stats: finalStats,
+      visualCue: visualCue,
+      duration_seconds: durationSeconds,
+      stages_completed: stagesCompleted
+    };
+
     // Enviar estadísticas finales al backend
-    if (wsClient) {
-      wsClient.send({
-        type: 'session_end',
-        stats: finalStats,
-        visualCue: visualCue
-      });
+    if (wsClient && wsClient.isConnected()) {
+      wsClient.send(endData);
+
+      // Esperar confirmación del backend antes de redirigir
+      const handleEndConfirmation = (message: LiveMessage) => {
+        if (message.type === 'session_end_confirmed') {
+          // Guardar datos en localStorage para la pantalla de resultados
+          if (message.session) {
+            localStorage.setItem(`live_session_${sessionId}`, JSON.stringify(message.session));
+          }
+          if (message.metrics) {
+            localStorage.setItem(`live_metrics_${sessionId}`, JSON.stringify(message.metrics));
+          } else if (message.stats) {
+            // Fallback a stats si metrics no está disponible
+            localStorage.setItem(`live_metrics_${sessionId}`, JSON.stringify(message.stats));
+          }
+
+          // Limpiar recursos
+          cleanupLiveSession();
+          if (wsClient) {
+            wsClient.send({ type: 'disconnect' });
+            wsClient.disconnect();
+          }
+
+          // Remover este handler temporal
+          if (wsClient) {
+            const originalOnMessage = (wsClient as any).onMessageCallback;
+            if (originalOnMessage) {
+              (wsClient as any).onMessageCallback = originalOnMessage;
+            }
+          }
+
+          // Redirigir a pantalla de resultados
+          const sessionIdParam = sessionId || '1';
+          navigate(`/live/${sessionIdParam}/results`);
+        }
+      };
+
+      // Guardar handler original y agregar temporalmente el handler de confirmación
+      const originalOnMessage = (wsClient as any).onMessageCallback;
+      (wsClient as any).onMessageCallback = (msg: LiveMessage) => {
+        handleEndConfirmation(msg);
+        if (originalOnMessage) {
+          originalOnMessage(msg);
+        }
+      };
+
+      // Timeout de seguridad: si no hay confirmación en 5 segundos, redirigir igualmente
+      setTimeout(() => {
+        if ((wsClient as any).onMessageCallback === handleEndConfirmation ||
+          (wsClient as any).onMessageCallback?.toString().includes('handleEndConfirmation')) {
+          // Restaurar handler original
+          (wsClient as any).onMessageCallback = originalOnMessage;
+
+          // Redirigir de todas formas
+          cleanupLiveSession();
+          const sessionIdParam = sessionId || '1';
+          navigate(`/live/${sessionIdParam}/results`);
+        }
+      }, 5000);
+    } else {
+      // Si no hay conexión, limpiar y redirigir directamente
+      cleanupLiveSession();
+      const sessionIdParam = sessionId || '1';
+      navigate(`/live/${sessionIdParam}/results`);
     }
-    
-    cleanupLiveSession();
-    if (wsClient) {
-      wsClient.send({ type: 'disconnect' });
-      wsClient.disconnect();
-    }
-    navigate('/dashboard');
   };
 
   const handleRetry = () => {
@@ -568,6 +777,21 @@ const LiveInterviewPage: React.FC = () => {
       // Si no hay conexión, recargar la página
       window.location.reload();
     }
+  };
+
+  const handlePauseToggle = () => {
+    if (!wsClient) return;
+
+    const newPausedState = !isPaused;
+    setIsPaused(newPausedState);
+
+    // Notificar al backend sobre el estado de pausa
+    wsClient.send({
+      type: 'session_pause',
+      paused: newPausedState
+    });
+
+    console.log(`Session ${newPausedState ? 'paused' : 'resumed'}`);
   };
 
   const toggleFeedback = () => {
@@ -594,7 +818,7 @@ const LiveInterviewPage: React.FC = () => {
     <div className="relative w-full h-[calc(100vh-2rem)] overflow-hidden bg-black rounded-xl">
       {/* MAIN VIDEO CONTAINER - Ajustado al área disponible */}
       <div className="relative w-full h-full">
-        
+
         {/* Canvas para captura (oculto) */}
         <canvas ref={canvasRef} className="hidden" />
 
@@ -636,8 +860,8 @@ const LiveInterviewPage: React.FC = () => {
           </div>
         )}
 
-        {/* 4. CONTROLES SUPERIORES - Flotante (Top Right) */}
-        <div className="absolute top-4 right-4 z-30 flex items-center gap-3">
+        {/* 4. CONTROLES SUPERIORES IZQUIERDA - Timer y LIVE badge */}
+        <div className="absolute top-4 left-4 z-30 flex items-center gap-3">
           {/* Timer */}
           {isLiveConnected && (
             <div className="flex items-center gap-2 text-sm text-white font-mono bg-black/60 backdrop-blur-md px-3 py-2 rounded-lg border border-white/20">
@@ -645,18 +869,23 @@ const LiveInterviewPage: React.FC = () => {
               {formatTime(timer)}
             </div>
           )}
-          
-          {/* Status Badge */}
-          <div className={`px-3 py-2 rounded-lg text-xs font-medium ${
+
+          {/* Status Badge LIVE */}
+          <div className={`px-3 py-2 rounded-lg text-xs font-medium ${isPaused ? 'bg-yellow-500/90 text-white' :
             isLiveConnected ? 'bg-green-500/90 text-white' :
-            connectionStatus === 'connecting' ? 'bg-yellow-500/90 text-white' :
-            'bg-red-500/90 text-white'
-          }`}>
-            {isLiveConnected ? (reconnectNotificationRef.current ? '● Reconectado' : '● LIVE') :
-             connectionStatus === 'connecting' ? (wsClient && wsClient.getReconnectAttempts() > 0 ? `● Reconectando (${wsClient.getReconnectAttempts()})` : '● Conectando...') :
-             '● Desconectado'}
+              connectionStatus === 'connecting' ? 'bg-yellow-500/90 text-white' :
+                'bg-red-500/90 text-white'
+            }`}>
+            {isPaused ? '● PAUSADO' :
+              isLiveConnected ? (reconnectNotificationRef.current ? '● Reconectado' : '● LIVE') :
+                connectionStatus === 'connecting' ? (wsClient && wsClient.getReconnectAttempts() > 0 ? `● Reconectando (${wsClient.getReconnectAttempts()})` : '● Conectando...') :
+                  '● Desconectado'}
           </div>
-          
+        </div>
+
+        {/* CONTROLES SUPERIORES DERECHA - Botones de acción */}
+        <div className="absolute top-4 right-4 z-30 flex items-center gap-3">
+
           {/* Toggle Feedback */}
           {isLiveConnected && (
             <button
@@ -669,7 +898,7 @@ const LiveInterviewPage: React.FC = () => {
               </span>
             </button>
           )}
-          
+
           {/* Reintentar - Mostrar si la entrevista terminó (última etapa completada) */}
           {session?.current_stage === 'closing' && timeRemaining !== undefined && timeRemaining <= 0 && (
             <button
@@ -681,15 +910,32 @@ const LiveInterviewPage: React.FC = () => {
               <span className="hidden md:inline">Reintentar</span>
             </button>
           )}
-          
+
+          {/* Pausar/Reanudar */}
+          {isLiveConnected && (
+            <button
+              onClick={handlePauseToggle}
+              className={`px-4 py-2 ${isPaused ? 'bg-green-500 hover:bg-green-600 border-green-600' : 'bg-yellow-500 hover:bg-yellow-600 border-yellow-600'} text-white rounded-lg transition flex items-center gap-2 border`}
+              title={isPaused ? 'Reanudar entrevista' : 'Pausar entrevista'}
+            >
+              <span className="material-symbols-outlined text-base">
+                {isPaused ? 'play_arrow' : 'pause'}
+              </span>
+              <span className="hidden md:inline">{isPaused ? 'Reanudar' : 'Pausar'}</span>
+            </button>
+          )}
+
           {/* Finalizar */}
-          <button
-            onClick={handleEndSession}
-            className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition flex items-center gap-2 border border-red-600"
-          >
-            <span className="material-symbols-outlined text-base">stop</span>
-            <span className="hidden md:inline">Finalizar</span>
-          </button>
+          {isLiveConnected && (
+            <button
+              onClick={handleEndSession}
+              className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition flex items-center gap-2 border border-red-600"
+              title="Finalizar entrevista y ver resultados"
+            >
+              <span className="material-symbols-outlined text-base">stop</span>
+              <span className="hidden md:inline">Finalizar</span>
+            </button>
+          )}
         </div>
 
         {/* 5. TÍTULO Y PREGUNTA - Bottom Left (Flotante, más pequeño) */}
@@ -702,12 +948,12 @@ const LiveInterviewPage: React.FC = () => {
           <h1 className="text-white text-xl md:text-2xl font-bold leading-tight drop-shadow-2xl text-pretty">
             {session ? (
               session.current_stage === 'introduction' ? 'Cuéntame sobre ti. ¿Quién eres y qué te apasiona?' :
-              session.current_stage === 'experience' ? 'Háblame de tu experiencia profesional más relevante.' :
-              session.current_stage === 'behavioral' ? 'Describe una situación desafiante y cómo la resolviste.' :
-              '¿Tienes alguna pregunta para mí?'
+                session.current_stage === 'experience' ? 'Háblame de tu experiencia profesional más relevante.' :
+                  session.current_stage === 'behavioral' ? 'Describe una situación desafiante y cómo la resolviste.' :
+                    '¿Tienes alguna pregunta para mí?'
             ) : 'Conectando con el entrevistador...'}
           </h1>
-          
+
           {/* Transcripción en tiempo real */}
           {transcription && (
             <div className="mt-2 text-sm text-white/80 bg-black/40 backdrop-blur-md px-3 py-2 rounded-lg border border-white/20 max-h-24 overflow-y-auto">
@@ -720,20 +966,20 @@ const LiveInterviewPage: React.FC = () => {
         {/* 6. PiP USER WEBCAM - Bottom Right (Flotante, más pequeño) */}
         <div className="absolute bottom-4 right-4 z-30">
           <div className="relative w-48 md:w-56 aspect-video bg-slate-900 rounded-lg overflow-hidden shadow-2xl border-2 border-white/30 ring-2 ring-black/50 group/pip transition-all hover:scale-105 hover:border-primary/50">
-            <video 
+            <video
               ref={videoRef}
               className="w-full h-full object-cover transform scale-x-[-1]"
-              autoPlay 
-              muted 
+              autoPlay
+              muted
               playsInline
             />
 
             {/* Audio Bars in PiP */}
             {isLiveConnected && (
               <div className="absolute bottom-3 left-3 flex gap-0.5 items-end h-4">
-                <div className="w-1 bg-green-400 rounded-sm audio-bar" style={{animationDuration: '0.6s'}}></div>
-                <div className="w-1 bg-green-400 rounded-sm audio-bar" style={{animationDuration: '0.8s'}}></div>
-                <div className="w-1 bg-green-400 rounded-sm audio-bar" style={{animationDuration: '0.4s'}}></div>
+                <div className="w-1 bg-green-400 rounded-sm audio-bar" style={{ animationDuration: '0.6s' }}></div>
+                <div className="w-1 bg-green-400 rounded-sm audio-bar" style={{ animationDuration: '0.8s' }}></div>
+                <div className="w-1 bg-green-400 rounded-sm audio-bar" style={{ animationDuration: '0.4s' }}></div>
               </div>
             )}
           </div>
